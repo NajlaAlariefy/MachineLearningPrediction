@@ -60,20 +60,20 @@ corrplot(c, method = "circle", tl.cex=0.6, tl.srt = 45, tl.col = "black", type= 
 ```
 
 ####Splitting the Data
-The value of **0.75** is chosen to split the data into training and testing.
+The value of **0.75** is chosen to split the data into training and validating datasets.
 ```{r, cache=TRUE}
 set.seed(224)
 trainIndices <- createDataPartition(data$classe, p=0.75, list=FALSE )
 train <- data[trainIndices,]
-test <- data[-trainIndices,]
+validation <- data[-trainIndices,]
 ```
 
 ```{r, echo=FALSE, cache=TRUE}
 trn <- dim(train)
-tst <- dim(test)
+tst <- dim(validation)
 ```
 
-Training set has `r trn[1]` observations and the testing set has `r tst[1]` observations.
+Training set has `r trn[1]` observations and the validation set has `r tst[1]` observations.
 
 ### Model  
 #### Sampling: Cross Validation K-Folds
@@ -102,23 +102,23 @@ model1 <- train(classe~., train, method='rf', trControl=c)
 model2 <- train(classe~., train, method='rf', trControl=c)
 stopCluster(cl) 
 #Both models are equal
-p1 <- predict(model1, test[,-49])
-p2 <- predict(model2, test[,-49])
+p1 <- predict(model1, validation[,-49])
+p2 <- predict(model2, validation[,-49])
 ```
 
 ###Results 
 ####Evaluation
-The accuracy of the model is a rate higher than **0.98**, and that indicates a low error rate and a very accurate classifier.
+The accuracy of the model is a rate higher than **0.99**, and that indicates a low error rate and a very accurate classifier.
 ```{r Accuracy,cache=TRUE}
-confusionMatrix(p1,test$classe)
+confusionMatrix(p1,validation$classe)
 ```
 The accuracy of random forests is best at 25 predictors. That means that with the evaluation of importance of features, the best 25 could be included for computational conveniency (for future reference).  
 ```{r,cache=TRUE,echo=FALSE}
 plot(model1,  main = "Accuracy of Random Forests", xlab = "Number of Predictors",ylab = "Accuracy", lwd = 4,col="Navy")
 ```
 
-####Out of Sample Error Measurement: RMSE
-Out of sample (or commonly refered to as Out Of Bag (OOB)) error measurement used here is **Root Mean Square Error**. It is calculated by summing the distancing between the predicted values and the truth, squaring them, dividing by the number of observations then taking the square root for readibility.
+####Out of Sample Error Measurement: Cross-Validation RMSE
+Out of sample (or commonly refered to as Out Of Bag (OOB)) error measurement used here is **Root Mean Square Error**. It is calculated by summing the distancing between the predicted values and the validation dataset real values, squaring them, dividing by the number of observations then taking the square root for readibility.
 It's an appropriate measure of errors mainly due to the absence of extreme outliers. 
 ```{r Error, cache=TRUE}
 RMSE <- function(prediction, truth)
@@ -134,7 +134,7 @@ RMSE <- function(prediction, truth)
         rmse <- sqrt(s)
         rmse 
 }
-e1 <- RMSE(p1,test$classe) 
+e1 <- RMSE(p1,validation$classe) 
 ```
 The out of sample errors is **`r e1`**, and it is a relatively small rate.
 
