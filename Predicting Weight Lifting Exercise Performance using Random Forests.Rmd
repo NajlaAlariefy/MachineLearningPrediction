@@ -1,0 +1,155 @@
+---
+title: "Predicting Weight Lifting Exercise Performance using Random Forests"
+author: "Najla AlAriefy"
+date: "February 18, 2016"
+output: html_document
+---
+
+###Introduction
+This report will illustrate the results of the predictions of a model built to classify how well an exercise is performed based on the measurements of the accelerometers on the belt, forearm, arm and dumbbell of 6 participants.   
+ 
+###Dataset 
+
+####Attributes
+There are 160 attributes for the Weight Lifting Exercises dataset. There are four accelerometers:
+
+1. **Belt**
+2. **Arm**
+3. **Forearm**
+4. **Dumbbell**
+
+There are for each of the above measurements of **roll, pitch, yaw**, and the following statistical summaries of them: (_kurtoisis, skewness, min, max, amplitude,average, standard deviation, variance_). Moreover, there is a calculation of accelerometer with the statistical summaries of (_total, var_). And lastly, the **x, y, z** locations of the _gyros,magnet,accel_. 
+
+
+
+####Classes For Prediction
+ 
+Class                                  | Activity
+-------------------------------------- | --------------------------------------
+ A                                     | exactly according to the specification
+ B                                     | throwing the elbows to the front
+ C                                     | lifting the dumbbell only halfway
+ D                                     | lowering the dumbbell only halfway
+ E                                     | throwing the hips to the front
+
+ 
+###Data Preprocessing
+Using the information about attributes, we exclude all statistical summaries of the raw data, alongside all timestamps, windows, and user names since they are irrelevant measures.
+
+```{r, cache=TRUE}
+library(caret)
+library(doParallel)
+library(corrplot)
+
+#Loading data
+file <- tempfile()
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile=file, method="curl")
+raw <- read.csv(file)
+```
+```{r,cache=TRUE, fig.height=7, fig.width=7}
+#Removing statisical summaries
+v <- grep("kurtosis|skewness|min|max|amplitude|avg|stddev|var|total", names(raw))
+data <- raw[,-v]
+#Removing irrelevant information
+v <- grep("time|user|X|window", names(data))
+data <- data[,-v]
+dim(data)
+#Plotting the correlation of the remaining 48 attributes to check for any apparent patterns / exploring the data
+c <- cor(data[,-49])
+corrplot(c, method = "circle", tl.cex=0.6, tl.srt = 45, tl.col = "black", type= "upper", order="alphabet")
+```
+
+####Splitting the Data
+The value of **0.75** is chosen to split the data into training and testing.
+```{r, cache=TRUE}
+set.seed(224)
+trainIndices <- createDataPartition(data$classe, p=0.75, list=FALSE )
+train <- data[trainIndices,]
+test <- data[-trainIndices,]
+```
+
+```{r, echo=FALSE, cache=TRUE}
+trn <- dim(train)
+tst <- dim(test)
+```
+
+Training set has `r trn[1]` observations and the testing set has `r tst[1]` observations.
+
+### Model  
+#### Sampling: Cross Validation K-Folds
+**K-Folds** is a cross validating sampling method that randomly splits the dataset into *k* folds, and as they're being trained, one is allocated for testing. For this model, the value of *10* has been chosen for the folds as it doesn't compromise computational value.
+The reason why this method has been deemed apprioprate for this model is that - with a reasonable *k* - the bias is prevented, and the chance that the model will overfit the training set is minimized. Moreover, each observation will get to be in a test set once, and in the training set 9 times. 
+
+#### Algorithm: Random Forests
+**Random Forests** are a combination of tree predictors such that each tree depends on the values of a random vector sampled independently and with the same distribution for all trees in the forest. It is chosen because it's considered one of the most accurate classifiers, and it runs efficiently on large databases.
+Note: To bypass expensive computational time, parallel processing was employed.
+
+```{r,cache=TRUE}
+#Setting a vector of seeds for reproducibility as the algorithm is run in parallel
+set.seed(24)
+seeds <- vector(mode = "list", length = 11) 
+for(i in 1:10) seeds[[i]]<- sample.int(n=1000, 47) 
+#47 is the number of tuning parameter = ncol(data)-2
+seeds[[11]]<-sample.int(1000, 1)#for the last model
+
+#Control options for the train functions
+c <- trainControl(method='cv', seeds=seeds, index=createFolds(train$classe))
+
+
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+model1 <- train(classe~., train, method='rf', trControl=c)
+model2 <- train(classe~., train, method='rf', trControl=c)
+stopCluster(cl) 
+#Both models are equal
+p1 <- predict(model1, test[,-49])
+p2 <- predict(model2, test[,-49])
+```
+
+###Results 
+####Evaluation
+The accuracy of the model is a rate higher than **0.98**, and that indicates a low error rate and a very accurate classifier.
+```{r Accuracy,cache=TRUE}
+confusionMatrix(p1,test$classe)
+```
+The accuracy of random forests is best at 25 predictors. That means that with the evaluation of importance of features, the best 25 could be included for computational conveniency (for future reference).  
+```{r,cache=TRUE,echo=FALSE}
+plot(model1,  main = "Accuracy of Random Forests", xlab = "Number of Predictors",ylab = "Accuracy", lwd = 4,col="Navy")
+```
+
+####Out of Sample Error Measurement: RMSE
+Out of sample (or commonly refered to as Out Of Bag (OOB)) error measurement used here is **Root Mean Square Error**. It is calculated by summing the distancing between the predicted values and the truth, squaring them, dividing by the number of observations then taking the square root for readibility.
+It's an appropriate measure of errors mainly due to the absence of extreme outliers. 
+```{r Error, cache=TRUE}
+RMSE <- function(prediction, truth)
+{
+        if (class(prediction) == "factor")
+        {prediction <- as.integer(prediction)
+        truth <- as.integer(truth)}
+        s <- 0
+        for (i in 1:length(prediction))
+               s <- s + (prediction[i] - truth[i])^2
+        
+        s <- s/length(prediction)
+        rmse <- sqrt(s)
+        rmse 
+}
+e1 <- RMSE(p1,test$classe) 
+```
+The out of sample errors is **`r e1`**, and it is a relatively small rate.
+
+####Validation (Quiz 4)
+```{r,cache=TRUE}
+file <- tempfile()
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile=file, method="curl")
+test <- read.csv(file)
+v <- grep("kurtosis|skewness|min|max|amplitude|avg|stddev|var|total|time|user|X|window", names(test))
+testdata <- test[,-v] 
+
+ 
+results <- predict(model1, testdata)
+results
+```
+
+###References
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
